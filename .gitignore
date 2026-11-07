@@ -1,0 +1,7 @@
+# Không bao giờ đưa token lên GitHub
+secrets.json
+
+# Nhật ký chỉ có ý nghĩa trên từng máy
+logs/
+
+# data/seen.json và digests/ ĐƯỢC đưa lên repo để GitHub Actions nhớ bài đã gửi

@@ -1,0 +1,59 @@
+name: AI News Digest
+
+on:
+  schedule:
+    # GitHub dùng giờ UTC: 00:00 UTC = 07:00 VN, 12:00 UTC = 19:00 VN
+    - cron: '0 0 * * *'
+    - cron: '0 12 * * *'
+  workflow_dispatch:        # cho phép bấm "Run workflow" để chạy tay
+    inputs:
+      resend:
+        description: 'Gửi lại cả bài đã gửi (-Resend)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write           # để lưu lại data/seen.json và digests/ vào repo
+
+concurrency:
+  group: digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Đặt múi giờ Việt Nam
+        shell: powershell
+        run: tzutil /s "SE Asia Standard Time"
+
+      - name: Tạo secrets.json từ GitHub Secrets
+        shell: powershell
+        env:
+          SECRETS_JSON: ${{ secrets.SECRETS_JSON }}
+        run: |
+          if (-not $env:SECRETS_JSON) { Write-Error 'Chưa khai báo secret SECRETS_JSON trong Settings > Secrets and variables > Actions'; exit 1 }
+          [IO.File]::WriteAllText("$PWD\secrets.json", $env:SECRETS_JSON, (New-Object Text.UTF8Encoding $false))
+
+      - name: Chạy bản tin
+        shell: powershell
+        run: |
+          if ('${{ inputs.resend }}' -eq 'true') { .\monitor.ps1 -Resend } else { .\monitor.ps1 }
+
+      - name: Lưu trạng thái và bản lưu trữ vào repo
+        if: always()
+        shell: bash
+        run: |
+          rm -f secrets.json
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ digests/ 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "Không có thay đổi để lưu."
+          else
+            git commit -m "Bản tin $(date +'%Y-%m-%d %H:%M')"
+            git push
+          fi

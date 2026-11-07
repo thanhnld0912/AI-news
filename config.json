@@ -1,0 +1,96 @@
+{
+  "digestTitle": "Bản tin AI & Kỹ thuật phần mềm",
+  "lookbackDays": 3,
+
+  "maxPerCategory": 5,
+  "minPerCategory": 2,
+  "minScore": 3,
+  "maxPerSourceInCategory": 2,
+
+  "showSummary": true,
+  "summaryMaxChars": 160,
+  "maxTags": 3,
+  "categoryIcons": {
+    "Nghiên cứu (arXiv)": "📄",
+    "Công ty AI": "🏢",
+    "Tin tức AI": "🌐",
+    "Blog chuyên gia": "✍️",
+    "Bản tin": "📬",
+    "Bảo mật": "🛡️",
+    "Cộng đồng": "💬"
+  },
+  "sendWhenEmpty": false,
+  "arxivSkipRevisions": true,
+  "stateRetentionDays": 120,
+
+  "keywords": [
+    "AI", "artificial intelligence", "generative AI", "trí tuệ nhân tạo",
+    "LLM", "large language model", "language model", "foundation model", "frontier model",
+    "GPT", "ChatGPT", "Claude", "Gemini", "Llama", "Qwen", "DeepSeek", "Mistral",
+    "open-weight", "open-source model", "reasoning", "reasoning model", "multimodal", "vision-language",
+    "reinforcement learning", "RLHF", "post-training", "distillation", "scaling", "inference",
+    "small language model", "on-device", "AI safety", "alignment", "interpretability", "hallucination",
+    "agent", "agentic", "multi-agent", "MCP", "tool use", "computer use",
+    "coding assistant", "AI coding", "coding agent", "code generation", "code LLM", "copilot", "Codex", "Claude Code", "SWE-bench",
+    "software engineering", "program repair", "test generation", "code review", "refactoring",
+    "RAG", "retrieval-augmented", "fine-tuning", "evaluation", "eval", "benchmark",
+    "prompt injection", "jailbreak", "AI security", "LLM security", "red teaming",
+    "supply chain", "npm", "PyPI", "GitHub Actions", "credential", "API key",
+    "vulnerability", "zero-day", "ransomware", "breach", "exploit"
+  ],
+
+  "feeds": [
+    { "name": "arXiv cs.SE (Kỹ thuật phần mềm)", "category": "Nghiên cứu (arXiv)", "url": "https://rss.arxiv.org/rss/cs.SE", "filter": true, "weight": 1,
+      "keywords": ["LLM", "large language model", "language model", "agent", "agentic", "AI", "code generation", "coding agent", "program repair", "test generation", "code review", "vulnerability", "security", "SWE-bench", "copilot", "benchmark"] },
+    { "name": "arXiv cs.CR (Bảo mật)", "category": "Nghiên cứu (arXiv)", "url": "https://rss.arxiv.org/rss/cs.CR", "filter": true,
+      "keywords": ["LLM", "large language model", "language model", "agent", "agentic", "prompt injection", "jailbreak", "supply chain", "AI", "code"] },
+    { "name": "arXiv cs.AI", "category": "Nghiên cứu (arXiv)", "url": "https://rss.arxiv.org/rss/cs.AI", "filter": true,
+      "keywords": ["software engineering", "code generation", "coding agent", "program repair", "SWE-bench", "software development", "prompt injection", "LLM security", "agentic", "tool use"] },
+    { "name": "arXiv cs.CL (Ngôn ngữ)", "category": "Nghiên cứu (arXiv)", "url": "https://rss.arxiv.org/rss/cs.CL", "filter": true,
+      "keywords": ["agent", "agentic", "code", "reasoning", "tool use", "benchmark", "hallucination", "retrieval-augmented", "RAG", "long context", "small language model"] },
+    { "name": "arXiv cs.LG (Học máy)", "category": "Nghiên cứu (arXiv)", "url": "https://rss.arxiv.org/rss/cs.LG", "filter": true,
+      "keywords": ["LLM", "language model", "agent", "reasoning", "reinforcement learning", "RLHF", "post-training", "distillation", "scaling law", "efficient inference", "small language model", "code"] },
+    { "name": "Hugging Face Daily Papers", "category": "Nghiên cứu (arXiv)", "url": "https://papers.takara.ai/api/feed", "filter": true },
+
+    { "name": "Anthropic News", "category": "Công ty AI", "url": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml", "filter": false },
+    { "name": "OpenAI News", "category": "Công ty AI", "url": "https://openai.com/news/rss.xml", "filter": false },
+    { "name": "Google DeepMind Blog", "category": "Công ty AI", "url": "https://deepmind.google/blog/rss.xml", "filter": false },
+    { "name": "Google Research", "category": "Công ty AI", "url": "https://research.google/blog/rss/", "filter": true },
+    { "name": "Microsoft Research", "category": "Công ty AI", "url": "https://www.microsoft.com/en-us/research/feed/", "filter": true },
+    { "name": "Hugging Face Blog", "category": "Công ty AI", "url": "https://huggingface.co/blog/feed.xml", "filter": false },
+    { "name": "NVIDIA Developer Blog", "category": "Công ty AI", "url": "https://developer.nvidia.com/blog/feed", "filter": true },
+    { "name": "GitHub Blog", "category": "Công ty AI", "url": "https://github.blog/feed/", "filter": true },
+
+    { "name": "MIT Technology Review (AI)", "category": "Tin tức AI", "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed", "filter": true },
+    { "name": "The Verge (AI)", "category": "Tin tức AI", "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml", "filter": true },
+    { "name": "Ars Technica (AI)", "category": "Tin tức AI", "url": "https://arstechnica.com/ai/feed/", "filter": true },
+    { "name": "TechCrunch (AI)", "category": "Tin tức AI", "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "filter": true },
+    { "name": "VentureBeat (AI)", "category": "Tin tức AI", "url": "https://venturebeat.com/category/ai/feed/", "filter": true, "enabled": false },
+    { "name": "VnExpress Số hóa", "category": "Tin tức AI", "url": "https://vnexpress.net/rss/so-hoa.rss", "filter": true,
+      "keywords": ["AI", "trí tuệ nhân tạo", "ChatGPT", "OpenAI", "Gemini", "Claude", "chatbot", "mô hình ngôn ngữ", "DeepSeek", "Copilot", "agent"] },
+
+    { "name": "Simon Willison", "category": "Blog chuyên gia", "url": "https://simonwillison.net/atom/everything/", "filter": false },
+    { "name": "Martin Fowler", "category": "Blog chuyên gia", "url": "https://martinfowler.com/feed.atom", "filter": false },
+    { "name": "Chip Huyen", "category": "Blog chuyên gia", "url": "https://huyenchip.com/feed.xml", "filter": false },
+    { "name": "Eugene Yan", "category": "Blog chuyên gia", "url": "https://eugeneyan.com/rss/", "filter": false },
+    { "name": "Hamel Husain", "category": "Blog chuyên gia", "url": "https://hamel.dev/index.xml", "filter": false },
+    { "name": "Lilian Weng", "category": "Blog chuyên gia", "url": "https://lilianweng.github.io/index.xml", "filter": false },
+    { "name": "Interconnects (Nathan Lambert)", "category": "Blog chuyên gia", "url": "https://www.interconnects.ai/feed", "filter": false },
+    { "name": "One Useful Thing (Ethan Mollick)", "category": "Blog chuyên gia", "url": "https://www.oneusefulthing.org/feed", "filter": false },
+    { "name": "AI as Normal Technology", "category": "Blog chuyên gia", "url": "https://www.normaltech.ai/feed", "filter": false },
+
+    { "name": "Import AI (Jack Clark)", "category": "Bản tin", "url": "https://importai.substack.com/feed", "filter": false },
+    { "name": "Ahead of AI (Sebastian Raschka)", "category": "Bản tin", "url": "https://magazine.sebastianraschka.com/feed", "filter": false },
+    { "name": "The Pragmatic Engineer", "category": "Bản tin", "url": "https://newsletter.pragmaticengineer.com/feed", "filter": false },
+    { "name": "Latent Space", "category": "Bản tin", "url": "https://www.latent.space/feed", "filter": false },
+    { "name": "TLDR AI", "category": "Bản tin", "url": "https://tldr.tech/api/rss/ai", "filter": false },
+
+    { "name": "CISA KEV (lỗ hổng đang bị khai thác)", "category": "Bảo mật", "url": "https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities.json", "type": "kev", "filter": false },
+    { "name": "The Hacker News", "category": "Bảo mật", "url": "https://feeds.feedburner.com/TheHackersNews", "filter": true },
+    { "name": "BleepingComputer", "category": "Bảo mật", "url": "https://www.bleepingcomputer.com/feed/", "filter": true },
+    { "name": "OWASP GenAI Security", "category": "Bảo mật", "url": "https://genai.owasp.org/feed/", "filter": false },
+
+    { "name": "Hacker News (≥150 điểm)", "category": "Cộng đồng", "url": "https://hnrss.org/newest?points=150", "filter": true },
+    { "name": "r/MachineLearning", "category": "Cộng đồng", "url": "https://www.reddit.com/r/MachineLearning/top/.rss?t=day", "filter": false, "enabled": false }
+  ]
+}
