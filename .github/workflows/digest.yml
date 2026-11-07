@@ -2,9 +2,14 @@ name: AI News Digest
 
 on:
   schedule:
-    # GitHub dùng giờ UTC: 00:00 UTC = 07:00 VN, 12:00 UTC = 19:00 VN
-    - cron: '0 0 * * *'
-    - cron: '0 12 * * *'
+    # GitHub dùng giờ UTC (VN = UTC+7). Tránh phút 00 vì giờ chẵn GitHub quá tải, lịch hay bị trễ/bỏ qua.
+    # Đặt sớm ~25 phút để bù độ trễ: 23:35 UTC = 06:35 VN, 11:35 UTC = 18:35 VN
+    # Mỗi buổi có thêm 1 lần dự phòng (07:05 / 19:05 VN) phòng khi GitHub bỏ qua lần chính;
+    # lần dự phòng tự bỏ qua nếu đã có bản tin trong 2 giờ gần nhất.
+    - cron: '35 23 * * *'
+    - cron: '5 0 * * *'
+    - cron: '35 11 * * *'
+    - cron: '5 12 * * *'
   workflow_dispatch:        # cho phép bấm "Run workflow" để chạy tay
     inputs:
       resend:
@@ -25,12 +30,26 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+
+      - name: Bỏ qua nếu vừa gửi bản tin (lần chạy dự phòng)
+        id: guard
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] && \
+             [ -n "$(git log -1 --since='2 hours ago' --author='github-actions' --grep='Bản tin' --format=%H)" ]; then
+            echo "Đã có bản tin trong 2 giờ gần nhất — bỏ qua."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Đặt múi giờ Việt Nam
+        if: steps.guard.outputs.skip != 'true'
         shell: powershell
         run: tzutil /s "SE Asia Standard Time"
 
       - name: Tạo secrets.json từ GitHub Secrets
+        if: steps.guard.outputs.skip != 'true'
         shell: powershell
         env:
           SECRETS_JSON: ${{ secrets.SECRETS_JSON }}
@@ -39,12 +58,13 @@ jobs:
           [IO.File]::WriteAllText("$PWD\secrets.json", $env:SECRETS_JSON, (New-Object Text.UTF8Encoding $false))
 
       - name: Chạy bản tin
+        if: steps.guard.outputs.skip != 'true'
         shell: powershell
         run: |
           if ('${{ inputs.resend }}' -eq 'true') { .\monitor.ps1 -Resend } else { .\monitor.ps1 }
 
       - name: Lưu trạng thái và bản lưu trữ vào repo
-        if: always()
+        if: always() && steps.guard.outputs.skip != 'true'
         shell: bash
         run: |
           rm -f secrets.json
