@@ -3,13 +3,13 @@ name: AI News Digest
 on:
   schedule:
     # GitHub dùng giờ UTC (VN = UTC+7). Tránh phút 00 vì giờ chẵn GitHub quá tải, lịch hay bị trễ/bỏ qua.
-    # Đặt sớm ~25 phút để bù độ trễ: 23:35 UTC = 06:35 VN, 11:35 UTC = 18:35 VN
-    # Mỗi buổi có thêm 1 lần dự phòng (07:05 / 19:05 VN) phòng khi GitHub bỏ qua lần chính;
-    # lần dự phòng tự bỏ qua nếu đã có bản tin trong 2 giờ gần nhất.
-    - cron: '35 23 * * *'
-    - cron: '5 0 * * *'
-    - cron: '35 11 * * *'
-    - cron: '5 12 * * *'
+    # Lịch GitHub hay bị bỏ qua, nên đặt nhiều lần mỗi buổi (cứ 20 phút): lần nào chạy trước thì gửi,
+    # các lần sau tự bỏ qua nhờ bước "guard" (đã có bản tin trong 2 giờ gần nhất).
+    # Sáng: 06:05–07:45 VN (23:05–00:45 UTC). Tối: 18:05–19:45 VN (11:05–12:45 UTC).
+    - cron: '5,25,45 23 * * *'
+    - cron: '5,25,45 0 * * *'
+    - cron: '5,25,45 11 * * *'
+    - cron: '5,25,45 12 * * *'
   workflow_dispatch:        # cho phép bấm "Run workflow" để chạy tay
     inputs:
       resend:
