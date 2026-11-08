@@ -16,7 +16,8 @@ param(
     [switch]$Init,
     [switch]$Check,
     [switch]$TestSend,
-    [switch]$Resend
+    [switch]$Resend,
+    [switch]$NotifyEmpty   # Không có bài mới thì vẫn báo 1 tin ngắn lên Telegram (dùng khi gọi bằng lệnh /tin)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -533,6 +534,10 @@ Write-Log "Tìm thấy $($allItems.Count) bài khớp ($shownCount bài nổi b�
 if ($allItems.Count -eq 0 -and -not $cfg.sendWhenEmpty) {
     if (-not $DryRun) { Save-State }
     Write-Log 'Không có bài mới — không gửi bản tin.'
+    if ($NotifyEmpty -and -not $DryRun -and $secrets -and (Test-Configured $secrets.telegram.botToken) -and (Test-Configured $secrets.telegram.chatId)) {
+        try { Send-Telegram $secrets 'ℹ️ Không có bài mới kể từ bản tin trước.' (Get-TopicId $secrets $null) }
+        catch { Write-Log "LỖI gửi Telegram: $($_.Exception.Message)" }
+    }
     exit 0
 }
 

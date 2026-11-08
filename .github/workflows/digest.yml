@@ -1,19 +1,28 @@
 name: AI News Digest
 
 on:
+  # Lịch chính: Cloudflare Worker (telegram-worker/) gọi workflow_dispatch đúng 07:00 và 19:00 VN,
+  # và khi bạn gõ /tin cho bot Telegram.
+  # Lịch GitHub dưới đây chỉ là dự phòng (GitHub hay bỏ qua lịch): lần nào chạy trước thì gửi,
+  # các lần sau tự bỏ qua nhờ bước "guard" (đã có bản tin trong 2 giờ gần nhất).
+  # Sáng: 06:05–07:45 VN (23:05–00:45 UTC). Tối: 18:05–19:45 VN (11:05–12:45 UTC).
   schedule:
-    # GitHub dùng giờ UTC (VN = UTC+7). Tránh phút 00 vì giờ chẵn GitHub quá tải, lịch hay bị trễ/bỏ qua.
-    # Lịch GitHub hay bị bỏ qua, nên đặt nhiều lần mỗi buổi (cứ 20 phút): lần nào chạy trước thì gửi,
-    # các lần sau tự bỏ qua nhờ bước "guard" (đã có bản tin trong 2 giờ gần nhất).
-    # Sáng: 06:05–07:45 VN (23:05–00:45 UTC). Tối: 18:05–19:45 VN (11:05–12:45 UTC).
     - cron: '5,25,45 23 * * *'
     - cron: '5,25,45 0 * * *'
     - cron: '5,25,45 11 * * *'
     - cron: '5,25,45 12 * * *'
-  workflow_dispatch:        # cho phép bấm "Run workflow" để chạy tay
+  workflow_dispatch:        # "Run workflow" trên GitHub, hoặc do Cloudflare Worker gọi
     inputs:
       resend:
         description: 'Gửi lại cả bài đã gửi (-Resend)'
+        type: boolean
+        default: false
+      notify_empty:
+        description: 'Báo lên Telegram khi không có bài mới'
+        type: boolean
+        default: false
+      scheduled:
+        description: 'Lần chạy theo lịch (bỏ qua nếu vừa gửi trong 2 giờ)'
         type: boolean
         default: false
 
@@ -33,11 +42,11 @@ jobs:
         with:
           fetch-depth: 20
 
-      - name: Bỏ qua nếu vừa gửi bản tin (lần chạy dự phòng)
+      - name: Bỏ qua nếu vừa gửi bản tin (lần chạy theo lịch)
         id: guard
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "schedule" ] && \
+          if { [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.scheduled }}" = "true" ]; } && \
              [ -n "$(git log -1 --since='2 hours ago' --author='github-actions' --grep='Bản tin' --format=%H)" ]; then
             echo "Đã có bản tin trong 2 giờ gần nhất — bỏ qua."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -61,7 +70,10 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         shell: powershell
         run: |
-          if ('${{ inputs.resend }}' -eq 'true') { .\monitor.ps1 -Resend } else { .\monitor.ps1 }
+          $a = @{}
+          if ('${{ inputs.resend }}' -eq 'true')       { $a.Resend = $true }
+          if ('${{ inputs.notify_empty }}' -eq 'true') { $a.NotifyEmpty = $true }
+          .\monitor.ps1 @a
 
       - name: Lưu trạng thái và bản lưu trữ vào repo
         if: always() && steps.guard.outputs.skip != 'true'
