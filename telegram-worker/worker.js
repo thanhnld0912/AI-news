@@ -11,7 +11,8 @@
 //   WORKFLOW_FILE   (Text, tùy chọn) mặc định digest.yml
 
 const COMMANDS = [
-  { command: 'tin', description: 'Lấy bản tin mới ngay bây giờ' },
+  { command: 'nong', description: 'Xem tin nóng ngay bây giờ' },
+  { command: 'tin', description: 'Lấy bản tin đầy đủ ngay bây giờ' },
   { command: 'guilai', description: 'Gửi lại cả những bài đã gửi (3 ngày gần nhất)' },
   { command: 'trangthai', description: 'Xem lần chạy gần nhất' },
   { command: 'help', description: 'Danh sách lệnh' },
@@ -19,10 +20,11 @@ const COMMANDS = [
 
 const HELP =
   '🤖 <b>Lệnh của bot bản tin</b>\n' +
-  '/tin — lấy bản tin mới ngay\n' +
+  '/nong — xem tin nóng ngay\n' +
+  '/tin — lấy bản tin đầy đủ ngay\n' +
   '/guilai — gửi lại cả bài đã gửi (3 ngày gần nhất)\n' +
   '/trangthai — xem lần chạy gần nhất\n\n' +
-  'Bản tin tự gửi lúc 07:00 và 19:00 mỗi ngày.';
+  'Tin nóng tự kiểm tra mỗi 30 phút; bản tin đầy đủ lúc 07:00 và 19:00.';
 
 export default {
   async fetch(request, env) {
@@ -64,14 +66,18 @@ export default {
     });
 
     try {
-      if (cmd === '/tin' || cmd === '/guilai') {
+      if (cmd === '/tin' || cmd === '/guilai' || cmd === '/nong') {
         const running = await activeRun(env);
         if (running) {
-          await reply('⏳ Đang có một lần chạy chưa xong, bản tin sẽ tới trong ít phút nữa.');
+          await reply('⏳ Đang có một lần chạy chưa xong, tin sẽ tới trong ít phút nữa.');
         } else {
-          await dispatch(env, { resend: cmd === '/guilai', notify_empty: true });
-          await reply(cmd === '/guilai'
-            ? '🔁 Đã bắt đầu gửi lại bản tin. Khoảng 2–4 phút nữa tin sẽ tới.'
+          await dispatch(env, {
+            mode: cmd === '/nong' ? 'hot' : 'digest',
+            resend: cmd === '/guilai',
+            notify_empty: true,
+          });
+          await reply(cmd === '/guilai' ? '🔁 Đã bắt đầu gửi lại bản tin. Khoảng 2–4 phút nữa tin sẽ tới.'
+            : cmd === '/nong' ? '⚡ Đang tìm tin nóng. Khoảng 2–3 phút nữa tin sẽ tới.'
             : '🚀 Đã bắt đầu lấy bản tin. Khoảng 2–4 phút nữa tin sẽ tới.');
         }
       } else if (cmd === '/trangthai') {
@@ -85,9 +91,18 @@ export default {
     return new Response('ok');
   },
 
-  // Cron Trigger (giờ UTC): "0 0 * * *" = 07:00 VN, "0 12 * * *" = 19:00 VN
+  // Cron Triggers (giờ UTC):
+  //   "0 0 * * *"    = 07:00 VN -> bản tin đầy đủ
+  //   "0 12 * * *"   = 19:00 VN -> bản tin đầy đủ
+  //   "*/30 * * * *" = mỗi 30 phút -> tin nóng (bỏ qua đúng lúc 07:00/19:00 vì bản tin đầy đủ đang chạy)
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(dispatch(env, { scheduled: true }));
+    if (event.cron === '*/30 * * * *') {
+      const d = new Date(event.scheduledTime);
+      if (d.getUTCMinutes() < 5 && (d.getUTCHours() === 0 || d.getUTCHours() === 12)) return;
+      ctx.waitUntil(dispatch(env, { mode: 'hot' }));
+    } else {
+      ctx.waitUntil(dispatch(env, { mode: 'digest', scheduled: true }));
+    }
   },
 };
 

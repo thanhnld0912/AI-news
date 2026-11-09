@@ -10,7 +10,25 @@
   "showSummary": true,
   "summaryMaxChars": 160,
   "maxTags": 3,
+  "hotCategory": "Tin nóng",
+  "hotMinScore": 6,
+  "hotMaxItems": 8,
+  "hotMaxPerSource": 2,
+  "boostScore": 3,
+  "boostKeywords": [
+    "launch", "launches", "launched", "release", "released", "releases", "unveil", "unveils", "introducing", "announces",
+    "now available", "rolls out", "rolling out", "open-sources", "open sources", "leak", "leaked", "leaks", "rumor",
+    "coming soon", "acquire", "acquires", "acquisition", "raises", "funding", "IPO", "outage", "lawsuit", "ban",
+    "ra mắt", "công bố", "phát hành", "rò rỉ"
+  ],
+  "demoteKeywords": [
+    "builds", "uses OpenAI", "uses Claude", "uses Gemini", "customer story", "case study", "webinar", "how to",
+    "grows", "supports", "partners with", "deal", "stock", "shares"
+  ],
+
   "categoryIcons": {
+    "Tin nóng": "🔥",
+    "Viral": "📈",
     "Nghiên cứu (arXiv)": "📄",
     "Công ty AI": "🏢",
     "Tin tức AI": "🌐",
@@ -40,6 +58,14 @@
   ],
 
   "feeds": [
+    { "name": "Google News (AI, 24h)", "category": "Tin nóng", "hot": true, "googleNews": true, "filter": true,
+      "url": "https://news.google.com/rss/search?q=(OpenAI+OR+Anthropic+OR+DeepMind+OR+Gemini+OR+Claude+OR+ChatGPT+OR+GPT+OR+xAI+OR+Grok+OR+%22Meta+AI%22+OR+Llama+OR+DeepSeek+OR+Qwen+OR+Mistral+OR+Nvidia)+(launch+OR+launches+OR+release+OR+unveils+OR+announces+OR+leak+OR+leaked+OR+model)+when:1d&hl=en-US&gl=US&ceid=US:en" },
+    { "name": "TestingCatalog (tin rò rỉ)", "category": "Tin nóng", "hot": true, "filter": true, "weight": 1, "url": "https://www.testingcatalog.com/rss/" },
+    { "name": "Techmeme", "category": "Tin nóng", "hot": true, "filter": true, "url": "https://www.techmeme.com/feed.xml" },
+    { "name": "The Decoder", "category": "Tin nóng", "hot": true, "filter": true, "url": "https://the-decoder.com/feed/" },
+
+    { "name": "Hacker News (trang chủ)", "category": "Viral", "hot": true, "filter": true, "rankByPoints": true, "url": "https://hnrss.org/frontpage?points=200" },
+
     { "name": "arXiv cs.SE (Kỹ thuật phần mềm)", "category": "Nghiên cứu (arXiv)", "url": "https://rss.arxiv.org/rss/cs.SE", "filter": true, "weight": 1,
       "keywords": ["LLM", "large language model", "language model", "agent", "agentic", "AI", "code generation", "coding agent", "program repair", "test generation", "code review", "vulnerability", "security", "SWE-bench", "copilot", "benchmark"] },
     { "name": "arXiv cs.CR (Bảo mật)", "category": "Nghiên cứu (arXiv)", "url": "https://rss.arxiv.org/rss/cs.CR", "filter": true,
@@ -52,9 +78,9 @@
       "keywords": ["LLM", "language model", "agent", "reasoning", "reinforcement learning", "RLHF", "post-training", "distillation", "scaling law", "efficient inference", "small language model", "code"] },
     { "name": "Hugging Face Daily Papers", "category": "Nghiên cứu (arXiv)", "url": "https://papers.takara.ai/api/feed", "filter": true },
 
-    { "name": "Anthropic News", "category": "Công ty AI", "url": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml", "filter": false },
-    { "name": "OpenAI News", "category": "Công ty AI", "url": "https://openai.com/news/rss.xml", "filter": false },
-    { "name": "Google DeepMind Blog", "category": "Công ty AI", "url": "https://deepmind.google/blog/rss.xml", "filter": false },
+    { "name": "Anthropic News", "category": "Công ty AI", "hot": true, "weight": 3, "url": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml", "filter": false },
+    { "name": "OpenAI News", "category": "Công ty AI", "hot": true, "weight": 3, "url": "https://openai.com/news/rss.xml", "filter": false },
+    { "name": "Google DeepMind Blog", "category": "Công ty AI", "hot": true, "weight": 3, "url": "https://deepmind.google/blog/rss.xml", "filter": false },
     { "name": "Google Research", "category": "Công ty AI", "url": "https://research.google/blog/rss/", "filter": true },
     { "name": "Microsoft Research", "category": "Công ty AI", "url": "https://www.microsoft.com/en-us/research/feed/", "filter": true },
     { "name": "Hugging Face Blog", "category": "Công ty AI", "url": "https://huggingface.co/blog/feed.xml", "filter": false },

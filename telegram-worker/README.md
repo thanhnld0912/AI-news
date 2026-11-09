@@ -2,10 +2,10 @@
 
 Worker này chạy miễn phí trên Cloudflare, không cần bật máy:
 
-- Gõ `/tin` cho bot → GitHub chạy bản tin ngay (không có bài mới thì bot báo lại).
+- Gõ `/nong` → xem tin nóng ngay; `/tin` → bản tin đầy đủ ngay (không có bài mới thì bot báo lại).
 - `/guilai` → gửi lại cả bài đã gửi trong 3 ngày gần nhất.
 - `/trangthai` → xem lần chạy gần nhất thành công hay lỗi.
-- Tự chạy đúng **07:00** và **19:00** mỗi ngày (thay cho lịch GitHub hay bị bỏ qua).
+- Tự kiểm tra **tin nóng mỗi 30 phút**, và gửi bản tin đầy đủ đúng **07:00** và **19:00** mỗi ngày.
 
 ## Bước 1 — Tạo GitHub token
 
@@ -37,10 +37,11 @@ Bấm **Deploy** để lưu.
 
 ## Bước 4 — Đặt giờ tự chạy
 
-Worker → **Settings → Trigger Events (Triggers) → Add → Cron Triggers**, thêm 2 dòng (giờ UTC):
+Worker → **Settings → Trigger Events (Triggers) → Add → Cron Triggers**, thêm **đúng 3 dòng** (giờ UTC), xóa các dòng khác nếu có:
 
-- `0 0 * * *` → 07:00 giờ VN
-- `0 12 * * *` → 19:00 giờ VN
+- `0 0 * * *` → 07:00 giờ VN (bản tin đầy đủ)
+- `0 12 * * *` → 19:00 giờ VN (bản tin đầy đủ)
+- `*/30 * * * *` → mỗi 30 phút kiểm tra tin nóng
 
 ## Bước 5 — Nối bot với Worker (1 lần)
 

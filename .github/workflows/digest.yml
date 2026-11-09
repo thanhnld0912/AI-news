@@ -1,18 +1,24 @@
 name: AI News Digest
 
 on:
-  # Lịch chính: Cloudflare Worker (telegram-worker/) gọi workflow_dispatch đúng 07:00 và 19:00 VN,
-  # và khi bạn gõ /tin cho bot Telegram.
-  # Lịch GitHub dưới đây chỉ là dự phòng (GitHub hay bỏ qua lịch): lần nào chạy trước thì gửi,
-  # các lần sau tự bỏ qua nhờ bước "guard" (đã có bản tin trong 2 giờ gần nhất).
-  # Sáng: 06:05–07:45 VN (23:05–00:45 UTC). Tối: 18:05–19:45 VN (11:05–12:45 UTC).
+  # Lịch chính do Cloudflare Worker (telegram-worker/) gọi qua workflow_dispatch:
+  #   - mode=hot   mỗi 30 phút: gửi ngay tin nóng (nếu có)
+  #   - mode=digest 07:00 và 19:00 VN: bản tin đầy đủ
+  #   - lệnh /tin, /nong, /guilai từ bot Telegram
+  # Lịch GitHub dưới đây chỉ là dự phòng vì GitHub hay trễ/bỏ qua lịch:
+  #   - '17 * * * *'           -> tin nóng mỗi giờ
+  #   - '20 0 * * *', '20 12 * * *' -> bản tin 07:20 / 19:20 VN (tự bỏ qua nếu đã có bản tin trong 2 giờ)
   schedule:
-    - cron: '5,25,45 23 * * *'
-    - cron: '5,25,45 0 * * *'
-    - cron: '5,25,45 11 * * *'
-    - cron: '5,25,45 12 * * *'
-  workflow_dispatch:        # "Run workflow" trên GitHub, hoặc do Cloudflare Worker gọi
+    - cron: '17 * * * *'
+    - cron: '20 0 * * *'
+    - cron: '20 12 * * *'
+  workflow_dispatch:
     inputs:
+      mode:
+        description: 'digest = bản tin đầy đủ, hot = chỉ tin nóng'
+        type: choice
+        options: [digest, hot]
+        default: digest
       resend:
         description: 'Gửi lại cả bài đã gửi (-Resend)'
         type: boolean
@@ -22,7 +28,7 @@ on:
         type: boolean
         default: false
       scheduled:
-        description: 'Lần chạy theo lịch (bỏ qua nếu vừa gửi trong 2 giờ)'
+        description: 'Lần chạy theo lịch (bỏ qua nếu vừa gửi bản tin trong 2 giờ)'
         type: boolean
         default: false
 
@@ -37,17 +43,22 @@ jobs:
   digest:
     runs-on: windows-latest
     timeout-minutes: 20
+    env:
+      MODE: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 * * * *' && 'hot' || 'digest') || inputs.mode || 'digest' }}
     steps:
+      # ref: main -> luôn lấy trạng thái MỚI NHẤT (kể cả commit của lần chạy ngay trước),
+      # tránh gửi trùng khi nhiều lần chạy nối đuôi nhau.
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 20
 
       - name: Bỏ qua nếu vừa gửi bản tin (lần chạy theo lịch)
         id: guard
         shell: bash
         run: |
-          if { [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.scheduled }}" = "true" ]; } && \
-             [ -n "$(git log -1 --since='2 hours ago' --author='github-actions' --grep='Bản tin' --format=%H)" ]; then
+          if [ "$MODE" = "digest" ] && { [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.scheduled }}" = "true" ]; } && \
+             [ -n "$(git log -1 --since='2 hours ago' --author='github-actions' --grep='^Bản tin' --format=%H)" ]; then
             echo "Đã có bản tin trong 2 giờ gần nhất — bỏ qua."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
@@ -66,11 +77,12 @@ jobs:
           if (-not $env:SECRETS_JSON) { Write-Error 'Chưa khai báo secret SECRETS_JSON trong Settings > Secrets and variables > Actions'; exit 1 }
           [IO.File]::WriteAllText("$PWD\secrets.json", $env:SECRETS_JSON, (New-Object Text.UTF8Encoding $false))
 
-      - name: Chạy bản tin
+      - name: Chạy (${{ env.MODE }})
         if: steps.guard.outputs.skip != 'true'
         shell: powershell
         run: |
           $a = @{}
+          if ($env:MODE -eq 'hot')                     { $a.Hot = $true }
           if ('${{ inputs.resend }}' -eq 'true')       { $a.Resend = $true }
           if ('${{ inputs.notify_empty }}' -eq 'true') { $a.NotifyEmpty = $true }
           .\monitor.ps1 @a
@@ -86,6 +98,8 @@ jobs:
           if git diff --cached --quiet; then
             echo "Không có thay đổi để lưu."
           else
-            git commit -m "Bản tin $(date +'%Y-%m-%d %H:%M')"
+            if [ "$MODE" = "hot" ]; then msg="Tin nóng"; else msg="Bản tin"; fi
+            git commit -m "$msg $(date +'%Y-%m-%d %H:%M')"
+            git pull --rebase -q || true
             git push
           fi

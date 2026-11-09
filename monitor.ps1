@@ -17,7 +17,8 @@ param(
     [switch]$Check,
     [switch]$TestSend,
     [switch]$Resend,
-    [switch]$NotifyEmpty   # Không có bài mới thì vẫn báo 1 tin ngắn lên Telegram (dùng khi gọi bằng lệnh /tin)
+    [switch]$NotifyEmpty,  # Không có bài mới thì vẫn báo 1 tin ngắn lên Telegram (dùng khi gọi bằng lệnh /tin)
+    [switch]$Hot           # Chế độ tin nóng: chỉ đọc nguồn "hot": true, gửi ngay bài điểm cao, không tạo file lưu trữ
 )
 
 $ErrorActionPreference = 'Stop'
@@ -103,10 +104,22 @@ function New-FeedItem($Feed, [string]$Title, [string]$Link, [string]$Summary, [s
     if ($m.Success) { $announce = $m.Groups[1].Value; $Summary = $Summary.Substring($m.Length) }
     # Hacker News (hnrss): thay khối "Article URL / Comments URL / Points" bằng dòng ngắn gọn
     $hn = [regex]::Match(($Summary + ''), 'Points:\s*(\d+).*?Comments:\s*(\d+)', 'Singleline')
-    if ($hn.Success -and ($Summary -match 'Article URL')) { $Summary = "$($hn.Groups[1].Value) điểm · $($hn.Groups[2].Value) bình luận." }
+    $points = 0
+    if ($hn.Success -and ($Summary -match 'Article URL')) {
+        $points = [int]$hn.Groups[1].Value
+        $Summary = "$($hn.Groups[1].Value) điểm · $($hn.Groups[2].Value) bình luận."
+    }
+    # Google News: tiêu đề dạng "Tiêu đề - Tên báo"; mô tả chỉ là HTML lặp lại tiêu đề -> bỏ
+    $source = $Feed.name
+    if ($Feed.googleNews) {
+        $gm = [regex]::Match(($Title + ''), '^(.*\S)\s+-\s+([^-]+)$')
+        if ($gm.Success) { $Title = $gm.Groups[1].Value; $source = "$($gm.Groups[2].Value.Trim()) (Google News)" }
+        $Summary = ''
+    }
     [pscustomobject]@{
         Announce = $announce
-        Source   = $Feed.name
+        Points   = $points
+        Source   = $source
         Category = $Feed.category
         Title    = ConvertTo-PlainText $Title 300
         Link     = ($Link + '').Trim()
@@ -435,8 +448,13 @@ $globalPattern = Get-KeywordPattern $cfg.keywords
 $allItems = New-Object System.Collections.Generic.List[object]
 $failed = New-Object System.Collections.Generic.List[string]
 
+$boostPattern  = Get-KeywordPattern $cfg.boostKeywords    # tiêu đề có từ "ra mắt/rò rỉ…" -> cộng điểm
+$demotePattern = Get-KeywordPattern $cfg.demoteKeywords   # tiêu đề kiểu bài quảng bá khách hàng -> trừ điểm
+$boostScore    = if ($cfg.boostScore) { [double]$cfg.boostScore } else { 3 }
+
 foreach ($feed in $cfg.feeds) {
     if ($feed.enabled -eq $false) { continue }
+    if ($Hot -and -not $feed.hot -and -not $Check) { continue }
     try {
         $items = @(Get-FeedItems $feed)
         if ($Check) { Write-Host ('[OK]   {0,-34} {1,4} mục' -f $feed.name, $items.Count) -ForegroundColor Green; continue }
@@ -465,7 +483,13 @@ foreach ($feed in $cfg.feeds) {
             $titleHits = 0
             if ($pattern) { $titleHits = @([regex]::Matches($it.Title, $pattern) | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } | Select-Object -Unique).Count }
             $weight = if ($feed.weight) { [double]$feed.weight } else { 0 }
-            $it | Add-Member -NotePropertyName Score -NotePropertyValue ($it.Matched.Count + 2 * $titleHits + $weight) -Force
+            $score = $it.Matched.Count + 2 * $titleHits + $weight
+            if ($boostPattern -and $it.Title -match $boostPattern) { $score += $boostScore }
+            if ($demotePattern -and $it.Title -match $demotePattern) { $score -= $boostScore }
+            # Nguồn xếp theo độ viral (Hacker News): mỗi 100 điểm +1
+            if ($feed.rankByPoints -and $it.Points) { $score += [math]::Floor($it.Points / 100) }
+            $it | Add-Member -NotePropertyName Score -NotePropertyValue $score -Force
+            $it | Add-Member -NotePropertyName NewKeys -NotePropertyValue @($key, $titleKey) -Force
             $allItems.Add($it)
         }
     }
@@ -497,6 +521,123 @@ if ($Init) {
     exit 0
 }
 
+# ---- Nhiều báo cùng đưa một tin -> chỉ giữ 1 bài.
+# Hai tiêu đề coi là cùng tin khi:
+#   - có ≥ 3 từ chung và số từ chung ≥ 60% tiêu đề ngắn hơn, HOẶC
+#   - cùng chứa một cụm "tên có số + từ kế tiếp" (vd. "gpt-6 cyber", "qwen3.8-27b") — nên "GPT-6 Sol" ≠ "GPT-6 Cyber".
+# So cả với các bài ĐÃ GỬI trong lookbackDays ngày (đọc từ digests\*.md) để không gửi lại tin cũ do báo khác đăng lại.
+$StopWords = @{}
+foreach ($w in 'the','and','for','with','from','that','this','its','are','was','new','now','will','has','have','into','how','why','what','after','over','about','says','said','của','và','cho','với','những','các','một','được') { $StopWords[$w] = $true }
+function Get-TitleWords([string]$Title) {
+    $set = @{}; $pairs = @{}; $tokens = New-Object System.Collections.Generic.List[string]
+    $t = [regex]::Replace($Title.ToLowerInvariant(), '[‐-―−]', '-')   # gạch nối đặc biệt -> '-'
+    foreach ($m in [regex]::Matches($t, '[\p{L}\p{N}][\p{L}\p{N}.\-]*')) {
+        $w = $m.Value.Trim('.', '-')
+        $hasDigit = $w -match '\d'
+        if (($w.Length -ge 3 -or $hasDigit) -and -not $StopWords.ContainsKey($w)) { $set[$w] = $true; $tokens.Add($w) }
+    }
+    for ($i = 0; $i -lt $tokens.Count - 1; $i++) {
+        if ($tokens[$i] -match '\p{L}.*\d|\d.*\p{L}') { $pairs["$($tokens[$i]) $($tokens[$i + 1])"] = $true }
+        # "qwen 4", "chatgpt 6.2": tên + số tách rời
+        if ($tokens[$i + 1] -match '^\d[\d.]*$' -and $tokens[$i] -match '^\p{L}+$') { $pairs["$($tokens[$i]) $($tokens[$i + 1])"] = $true }
+    }
+    return [pscustomobject]@{ W = $set; P = $pairs }
+}
+function Test-SimilarTitle($Item, $PickedWordSets) {
+    $a = Get-TitleWords $Item.Title
+    if ($a.W.Count -eq 0) { return $false }
+    foreach ($b in $PickedWordSets) {
+        foreach ($k in $a.P.Keys) { if ($b.P.ContainsKey($k)) { return $true } }
+        $inter = 0
+        foreach ($k in $a.W.Keys) { if ($b.W.ContainsKey($k)) { $inter++ } }
+        $small = [math]::Min($a.W.Count, $b.W.Count)
+        if ($inter -ge 3 -and ($inter / $small) -ge 0.6) { return $true }
+    }
+    return $false
+}
+$pickedWords = New-Object System.Collections.Generic.List[object]
+if (-not $Resend -and (Test-Path $DigestDir)) {
+    $since = (Get-Date).Date.AddDays(-[double]$cfg.lookbackDays)
+    foreach ($f in Get-ChildItem $DigestDir -Filter '*.md') {
+        $dm = [regex]::Match($f.Name, '(\d{4}-\d{2}-\d{2})')
+        if (-not $dm.Success -or [datetime]::ParseExact($dm.Value, 'yyyy-MM-dd', $null) -lt $since) { continue }
+        foreach ($l in [IO.File]::ReadAllLines($f.FullName, [Text.Encoding]::UTF8)) {
+            $tm = [regex]::Match($l, '^\s*\d+\.\s+⭐\s+\*\*\[(.*)\]\(http')
+            if ($tm.Success) { $pickedWords.Add((Get-TitleWords $tm.Groups[1].Value)) }
+        }
+    }
+}
+$byDate  = @{ Expression = { if ($_.Date) { $_.Date.UtcDateTime } else { [datetime]::MinValue } }; Descending = $true }
+
+# ---- CHẾ ĐỘ TIN NÓNG: gửi ngay các bài điểm cao từ nguồn "hot"; bài chưa đủ điểm để dành cho bản tin 7h/19h
+if ($Hot) {
+    $hotMin = if ($cfg.hotMinScore) { [double]$cfg.hotMinScore } else { 5 }
+    $hotMax = if ($cfg.hotMaxItems) { [int]$cfg.hotMaxItems } else { 8 }
+    $hotSrc = if ($cfg.hotMaxPerSource) { [int]$cfg.hotMaxPerSource } else { 2 }
+    $perSrc = @{}
+    $picked = New-Object System.Collections.Generic.List[object]
+    foreach ($it in @($allItems | Sort-Object @{ Expression = { $_.Score }; Descending = $true }, $byDate)) {
+        if ($it.Score -lt $hotMin) { continue }
+        if (Test-SimilarTitle $it $pickedWords) { $it.Shown = $true; continue }   # tin trùng: coi như đã gửi
+        if ($picked.Count -ge $hotMax -or [int]$perSrc[$it.Source] -ge $hotSrc) { continue }   # để dành lần sau
+        $it.Shown = $true; $picked.Add($it); $pickedWords.Add((Get-TitleWords $it.Title))
+        $perSrc[$it.Source] = 1 + [int]$perSrc[$it.Source]
+    }
+    # Bài chưa gửi: bỏ đánh dấu "đã xem" để bản tin 7h/19h (hoặc lần sau, nếu nóng lên) vẫn lấy được
+    foreach ($it in @($allItems | Where-Object { -not $_.Shown })) { foreach ($k in $it.NewKeys) { $seen.Remove($k) } }
+    Write-Log "Tin nóng: $($allItems.Count) bài mới khớp, gửi $($picked.Count) bài (ngưỡng $hotMin điểm); $($failed.Count) nguồn lỗi."
+
+    if ($picked.Count -eq 0) {
+        if (-not $DryRun) {
+            Save-State
+            if ($NotifyEmpty -and $secrets -and (Test-Configured $secrets.telegram.botToken)) {
+                try { Send-Telegram $secrets 'ℹ️ Chưa có tin nóng mới.' (Get-TopicId $secrets $cfg.hotCategory) } catch { Write-Log "LỖI gửi Telegram: $($_.Exception.Message)" }
+            }
+        }
+        exit 0
+    }
+
+    $line = '━━━━━━━━━━━━━━━━'
+    $blocks = New-Object System.Collections.Generic.List[string]
+    $blocks.Add("⚡ <b>TIN NÓNG</b>  ·  $(Get-Date -Format 'HH:mm dd/MM')`n$line")
+    $i = 0
+    foreach ($it in $picked) {
+        $i++
+        $meta = "$(Get-CategoryIcon $cfg $it.Category) <i>$(Escape-Html (Get-ShortSource $it.Source))</i>"
+        $tags = Get-Tags $it 3
+        if ($tags) { $meta += "  ·  $tags" }
+        $b = "<b>$i.</b> <a href=`"$(Escape-Html $it.Link)`">$(Escape-Html $it.Title)</a>`n$meta"
+        if ($cfg.showSummary -and $it.Summary) { $b += "`n" + (Escape-Html (Get-FirstSentence $it.Summary ([int]$cfg.summaryMaxChars))) }
+        $blocks.Add($b)
+    }
+    $msgs = @(Split-Messages $blocks.ToArray() | ForEach-Object { New-TgMessage $cfg.hotCategory $_ })
+
+    if ($DryRun) {
+        [Console]::OutputEncoding = [Text.Encoding]::UTF8
+        foreach ($m in $msgs) { Write-Host ([System.Net.WebUtility]::HtmlDecode([regex]::Replace($m.Text, '<[^>]+>', ''))); Write-Host '' }
+        exit 0
+    }
+    if (Send-Digest $secrets 'Tin nóng AI' $msgs ($blocks -join '<br><br>')) {
+        Save-State
+        # Ghi vào file lưu trữ trong ngày (cũng dùng để chống gửi lại tin trùng ở các lần sau)
+        if (-not (Test-Path $DigestDir)) { New-Item -ItemType Directory -Path $DigestDir | Out-Null }
+        $hotFile = Join-Path $DigestDir "hot-$(Get-Date -Format 'yyyy-MM-dd').md"
+        $sb = New-Object System.Text.StringBuilder
+        if (-not (Test-Path $hotFile)) { [void]$sb.AppendLine("# ⚡ Tin nóng $(Get-Date -Format 'dd/MM/yyyy')").AppendLine() }
+        [void]$sb.AppendLine("## $(Get-Date -Format 'HH:mm')").AppendLine()
+        $i = 0
+        foreach ($it in $picked) {
+            $i++
+            [void]$sb.AppendLine("$i. ⭐ **[$($it.Title)]($($it.Link))**  ")
+            [void]$sb.AppendLine("   _$(Get-ShortSource $it.Source) · $($it.Category)_").AppendLine()
+        }
+        [IO.File]::AppendAllText($hotFile, $sb.ToString(), (New-Object Text.UTF8Encoding $false))
+        exit 0
+    }
+    Write-Log 'Gửi tin nóng lỗi — KHÔNG lưu trạng thái để lần sau gửi lại.'
+    exit 1
+}
+
 # ---- Chọn bài nổi bật theo từng MỤC (không phải từng nguồn)
 # Mỗi mục: tối đa maxPerCategory bài; bài phải đạt minScore, nhưng luôn có ít nhất minPerCategory bài (nếu có);
 # mỗi nguồn tối đa maxPerSourceInCategory bài để mục không bị một nguồn chiếm hết.
@@ -504,7 +645,6 @@ $maxCat  = if ($cfg.maxPerCategory) { [int]$cfg.maxPerCategory } else { 5 }
 $minCat  = if ($cfg.minPerCategory) { [int]$cfg.minPerCategory } else { 2 }
 $minScr  = if ($cfg.minScore) { [double]$cfg.minScore } else { 0 }
 $maxSrc  = if ($cfg.maxPerSourceInCategory) { [int]$cfg.maxPerSourceInCategory } else { 2 }
-$byDate  = @{ Expression = { if ($_.Date) { $_.Date.UtcDateTime } else { [datetime]::MinValue } }; Descending = $true }
 
 $ordered = New-Object System.Collections.Generic.List[object]
 foreach ($cat in @($cfg.feeds | ForEach-Object { $_.category } | Select-Object -Unique)) {
@@ -515,12 +655,16 @@ foreach ($cat in @($cfg.feeds | ForEach-Object { $_.category } | Select-Object -
         if ($picked -ge $maxCat) { break }
         if ($picked -ge $minCat -and $it.Score -lt $minScr) { break }
         if ([int]$perSrc[$it.Source] -ge $maxSrc) { continue }
+        if (Test-SimilarTitle $it $pickedWords) { continue }   # trùng tin với bài đã chọn -> chỉ để trong file lưu trữ
         $it.Shown = $true; $perSrc[$it.Source] = 1 + [int]$perSrc[$it.Source]; $picked++
+        $pickedWords.Add((Get-TitleWords $it.Title))
     }
     # Chưa đủ tối thiểu (vì giới hạn mỗi nguồn) -> lấy thêm bài điểm cao kế tiếp
     foreach ($it in $ranked) {
         if ($picked -ge $minCat) { break }
-        if (-not $it.Shown) { $it.Shown = $true; $picked++ }
+        if (-not $it.Shown -and -not (Test-SimilarTitle $it $pickedWords)) {
+            $it.Shown = $true; $picked++; $pickedWords.Add((Get-TitleWords $it.Title))
+        }
     }
     # Bài nổi bật lên trước (theo điểm), phần còn lại theo sau -> dùng cho cả Telegram và file lưu trữ
     foreach ($it in @($ranked | Where-Object { $_.Shown })) { $ordered.Add($it) }
