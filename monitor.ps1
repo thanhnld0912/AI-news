@@ -107,7 +107,48 @@ function Get-ChildText($Node, [string]$Name) {
     if ($n) { return $n.InnerText } else { return '' }
 }
 
-function New-FeedItem($Feed, [string]$Title, [string]$Link, [string]$Summary, [string]$Date, [string]$Id) {
+# Ảnh minh họa có sẵn trong RSS: media:content / media:thumbnail / enclosure / News:Image (Bing) / <img> đầu tiên trong nội dung
+$BadImage = '(?i)feedburner|/pixel|tracking|gravatar|emoji|1x1|spacer|\.gif(\?|$)|\.svg(\?|$)'
+function Get-ItemImage($Node, [string]$Html) {
+    foreach ($n in $Node.SelectNodes(".//*[local-name()='content' or local-name()='thumbnail' or local-name()='enclosure' or local-name()='Image']")) {
+        $u = $n.GetAttribute('url')
+        if (-not $u -and $n.LocalName -eq 'Image') { $u = $n.InnerText.Trim() }
+        if (-not $u -or $u -match $BadImage) { continue }
+        $t = $n.GetAttribute('type'); $med = $n.GetAttribute('medium')
+        if ($n.LocalName -eq 'enclosure' -and $t -notlike 'image/*') { continue }
+        if ($n.LocalName -eq 'content' -and $t -and $t -notlike 'image/*' -and $med -ne 'image') { continue }
+        return $u
+    }
+    foreach ($m in [regex]::Matches(($Html + ''), '<img[^>]+?src=["'']([^"'']+)["'']', 'IgnoreCase')) {
+        $u = [System.Net.WebUtility]::HtmlDecode($m.Groups[1].Value)
+        if ($u -match '^https?://' -and $u -notmatch $BadImage) { return $u }
+    }
+    return ''
+}
+
+# Ảnh đại diện của bài báo (og:image) — chỉ gọi cho vài bài được làm "thẻ ảnh"
+function Get-OgImage([string]$Url) {
+    if (-not $Url -or $Url -match '://news\.google\.com/') { return '' }   # link Google News không dẫn thẳng tới bài
+    try {
+        $r = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 12 -MaximumRedirection 5 `
+            -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+        $html = $r.Content
+        if ($html.Length -gt 400000) { $html = $html.Substring(0, 400000) }
+        foreach ($p in @('og:image(?::secure_url|:url)?', 'twitter:image(?::src)?')) {
+            $m = [regex]::Match($html, "<meta[^>]+(?:property|name)=[""']$p[""'][^>]*content=[""']([^""']+)[""']", 'IgnoreCase')
+            if (-not $m.Success) { $m = [regex]::Match($html, "<meta[^>]+content=[""']([^""']+)[""'][^>]*(?:property|name)=[""']$p[""']", 'IgnoreCase') }
+            if ($m.Success) {
+                $u = [System.Net.WebUtility]::HtmlDecode($m.Groups[1].Value)
+                if ($u -match '^//') { $u = 'https:' + $u }
+                elseif ($u -notmatch '^https?://') { $u = ([Uri]::new([Uri]$r.BaseResponse.ResponseUri, $u)).AbsoluteUri }
+                if ($u -notmatch $BadImage) { return $u }
+            }
+        }
+    } catch { }
+    return ''
+}
+
+function New-FeedItem($Feed, [string]$Title, [string]$Link, [string]$Summary, [string]$Date, [string]$Id, [string]$Image = '') {
     if (-not $Id) { $Id = $Link }
     # arXiv: tách "arXiv:xxxx Announce Type: new|cross|replace Abstract:" khỏi tóm tắt
     $announce = ''
@@ -122,6 +163,15 @@ function New-FeedItem($Feed, [string]$Title, [string]$Link, [string]$Summary, [s
     }
     # Google News: tiêu đề dạng "Tiêu đề - Tên báo"; mô tả chỉ là HTML lặp lại tiêu đề -> bỏ
     $source = $Feed.name
+    # Bing News: link dạng bing.com/news/apiclick.aspx?...&url=<link gốc> -> lấy link gốc của bài
+    $bm = [regex]::Match(($Link + ''), '(?i)bing\.com/news/apiclick\.aspx\?.*?[?&]url=([^&]+)')
+    if ($bm.Success) {
+        $Link = [Uri]::UnescapeDataString($bm.Groups[1].Value)
+        if ($Id -match 'bing\.com') { $Id = $Link }
+        try { $source = "$(([Uri]$Link).Host -replace '^www\.', '') (Bing News)" } catch { }
+    }
+    # Ảnh thu nhỏ của Bing -> xin bản to hơn
+    if ($Image -match '(?i)bing\.com/th\?' -and $Image -notmatch '[?&]w=') { $Image += '&w=1000&h=560&c=7' }
     if ($Feed.googleNews) {
         $gm = [regex]::Match(($Title + ''), '^(.*\S)\s+-\s+([^-]+)$')
         if ($gm.Success) { $Title = $gm.Groups[1].Value; $source = "$($gm.Groups[2].Value.Trim()) (Google News)" }
@@ -137,6 +187,7 @@ function New-FeedItem($Feed, [string]$Title, [string]$Link, [string]$Summary, [s
         Summary  = ConvertTo-PlainText $Summary 0
         Date     = ConvertTo-Date $Date
         Id       = ($Id + '').Trim()
+        Image    = ($Image + '').Trim()
         Matched  = @()
         Shown    = $false
     }
@@ -172,10 +223,12 @@ function Get-FeedItems($Feed) {
                 if (-not $rel -or $rel -eq 'alternate') { $link = $l.GetAttribute('href'); break }
             }
             $summary = Get-ChildText $e 'summary'
-            if (-not $summary) { $summary = Get-ChildText $e 'content' }
+            $content = Get-ChildText $e 'content'
+            if (-not $summary) { $summary = $content }
             $date = Get-ChildText $e 'published'
             if (-not $date) { $date = Get-ChildText $e 'updated' }
-            New-FeedItem $Feed (Get-ChildText $e 'title') $link $summary $date (Get-ChildText $e 'id')
+            $img = Get-ItemImage $e "$summary $content"
+            New-FeedItem $Feed (Get-ChildText $e 'title') $link $summary $date (Get-ChildText $e 'id') $img
         }
     }
     else {
@@ -184,7 +237,9 @@ function Get-FeedItems($Feed) {
             $date = Get-ChildText $i 'pubDate'
             if (-not $date) { $date = Get-ChildText $i 'date' }
             $id = Get-ChildText $i 'guid'
-            New-FeedItem $Feed (Get-ChildText $i 'title') (Get-ChildText $i 'link') (Get-ChildText $i 'description') $date $id
+            $desc = Get-ChildText $i 'description'
+            $img = Get-ItemImage $i "$desc $(Get-ChildText $i 'encoded')"
+            New-FeedItem $Feed (Get-ChildText $i 'title') (Get-ChildText $i 'link') $desc $date $id $img
         }
     }
 }
@@ -210,13 +265,30 @@ function Test-Configured($Value) {
     return ($Value -and ("$Value" -notmatch '^<.*>$') -and ("$Value".Trim() -ne ''))
 }
 
-function Send-Telegram($Secrets, [string]$Text, $ThreadId = $null) {
+# $PreviewUrl: hiện ảnh xem trước LỚN của link này ở đầu tin nhắn (Telegram tự lấy ảnh từ trang)
+function Send-Telegram($Secrets, [string]$Text, $ThreadId = $null, [string]$PreviewUrl = '') {
     $uri = "https://api.telegram.org/bot$($Secrets.telegram.botToken)/sendMessage"
     $payload = @{
-        chat_id                  = $Secrets.telegram.chatId
-        text                     = $Text
-        parse_mode               = 'HTML'
-        disable_web_page_preview = $true
+        chat_id    = $Secrets.telegram.chatId
+        text       = $Text
+        parse_mode = 'HTML'
+    }
+    if ($PreviewUrl) { $payload.link_preview_options = @{ url = $PreviewUrl; prefer_large_media = $true; show_above_text = $true } }
+    else { $payload.link_preview_options = @{ is_disabled = $true } }
+    if ($ThreadId) { $payload.message_thread_id = [int64]$ThreadId }
+    $body = $payload | ConvertTo-Json -Compress -Depth 5
+    Invoke-RestMethod -Uri $uri -Method Post -ContentType 'application/json; charset=utf-8' `
+        -Body ([Text.Encoding]::UTF8.GetBytes($body)) | Out-Null
+}
+
+# Thẻ ảnh: ảnh + chú thích (Telegram giới hạn chú thích 1024 ký tự)
+function Send-TelegramPhoto($Secrets, [string]$PhotoUrl, [string]$Caption, $ThreadId = $null) {
+    $uri = "https://api.telegram.org/bot$($Secrets.telegram.botToken)/sendPhoto"
+    $payload = @{
+        chat_id    = $Secrets.telegram.chatId
+        photo      = $PhotoUrl
+        caption    = $Caption
+        parse_mode = 'HTML'
     }
     if ($ThreadId) { $payload.message_thread_id = [int64]$ThreadId }
     $body = $payload | ConvertTo-Json -Compress
@@ -245,8 +317,9 @@ function Get-TopicId($Secrets, [string]$Category) {
     return $null
 }
 
-function New-TgMessage([string]$Category, [string]$Text) {
-    return [pscustomobject]@{ Category = $Category; Text = $Text }
+# Photo: gửi dạng thẻ ảnh (Text làm chú thích); Preview: link hiện ảnh xem trước lớn
+function New-TgMessage([string]$Category, [string]$Text, [string]$Photo = '', [string]$Preview = '') {
+    return [pscustomobject]@{ Category = $Category; Text = $Text; Photo = $Photo; Preview = $Preview }
 }
 
 # Trả về $true nếu ít nhất một kênh gửi thành công (hoặc không cấu hình kênh nào).
@@ -256,7 +329,14 @@ function Send-Digest($Secrets, [string]$Subject, $TelegramMessages, [string]$Ema
         $channels++
         try {
             foreach ($m in $TelegramMessages) {
-                Send-Telegram $Secrets $m.Text (Get-TopicId $Secrets $m.Category)
+                $tid = Get-TopicId $Secrets $m.Category
+                $sent = $false
+                if ($m.Photo) {
+                    # Ảnh có thể lỗi (link hỏng, chặn tải, quá 5MB…) -> gửi lại dạng chữ, không làm mất tin
+                    try { Send-TelegramPhoto $Secrets $m.Photo $m.Text $tid; $sent = $true }
+                    catch { Write-Log "Ảnh lỗi, gửi dạng chữ: $($m.Photo)" }
+                }
+                if (-not $sent) { Send-Telegram $Secrets $m.Text $tid $m.Preview }
                 Start-Sleep -Milliseconds 400
             }
             $ok++; Write-Log "Đã gửi Telegram ($($TelegramMessages.Count) tin nhắn)"
@@ -337,7 +417,19 @@ function Build-Digest($Config, $Items, $FailedFeeds, [string]$ArchiveName) {
     if ($hidden -gt 0) { $head += ", thêm <b>$hidden</b> bài khác được lưu trong file lưu trữ" }
     $head += '.'
     if ($FailedFeeds.Count -gt 0) { $head += "`n`n⚠️ Nguồn không đọc được hôm nay: " + (Escape-Html ($FailedFeeds -join ', ')) }
-    $messages.Add((New-TgMessage '' $head))
+
+    # Ảnh bìa: bài điểm cao nhất có ảnh (thử tối đa 3 bài đầu) -> tin mở đầu thành thẻ ảnh "Tiêu điểm"
+    $cover = ''; $top = $null
+    foreach ($it in @($shown | Sort-Object @{ Expression = { $_.Score }; Descending = $true } | Select-Object -First 3)) {
+        $img = Get-OgImage $it.Link            # ảnh gốc của bài (nét) ưu tiên hơn ảnh thu nhỏ trong RSS
+        if (-not $img) { $img = $it.Image }
+        if ($img) { $cover = $img; $top = $it; break }
+    }
+    if ($top) {
+        $head = "⭐ <b>Tiêu điểm:</b> <a href=`"$(Escape-Html $top.Link)`">$(Escape-Html $top.Title)</a>`n`n" + $head
+    }
+    if ($cover -and $head.Length -gt 1000) { $messages.Add((New-TgMessage '' $head '' $top.Link)) }   # quá dài cho chú thích ảnh
+    else { $messages.Add((New-TgMessage '' $head $cover)) }
 
     [void]$md.AppendLine("# 📰 $title").AppendLine()
     [void]$md.AppendLine("**$dateLabel** — $($Items.Count) bài khớp từ khóa; $($shown.Count) bài đã gửi lên Telegram (đánh dấu ⭐).").AppendLine()
@@ -366,7 +458,13 @@ function Build-Digest($Config, $Items, $FailedFeeds, [string]$ArchiveName) {
                 $blocks.Add($b)
             }
             if ($more -gt 0) { $blocks.Add("<i>… và $more bài khác trong mục này (xem file lưu trữ)</i>") }
-            foreach ($m in (Split-Messages $blocks.ToArray())) { $messages.Add((New-TgMessage $cat $m)) }
+            # Ảnh xem trước lớn của bài nổi bật nhất trong mục (bỏ qua link Google News vì không ra ảnh bài)
+            $pv = @($catShown | Where-Object { $_.Link -notmatch '://news\.google\.com/|arxiv\.org' } | Select-Object -First 1)
+            $first = $true
+            foreach ($m in (Split-Messages $blocks.ToArray())) {
+                $messages.Add((New-TgMessage $cat $m '' $(if ($first -and $pv.Count) { $pv[0].Link } else { '' })))
+                $first = $false
+            }
         }
 
         # ---- File lưu trữ Markdown: ghi ĐẦY ĐỦ mọi bài
@@ -405,7 +503,8 @@ function Build-Digest($Config, $Items, $FailedFeeds, [string]$ArchiveName) {
     if ($hidden -gt 0) {
         $footer = "📂 <i>Danh sách đầy đủ $($Items.Count) bài: digests\$ArchiveName</i>"
         # Gắn vào tin nhắn tổng quan (đầu tiên) để dù chia topic vẫn dễ thấy
-        if (($messages[0].Text.Length + $footer.Length + 2) -lt 3800) { $messages[0].Text = $messages[0].Text + "`n`n$footer" }
+        $limit0 = if ($messages[0].Photo) { 1000 } else { 3800 }   # chú thích ảnh tối đa 1024 ký tự
+        if (($messages[0].Text.Length + $footer.Length + 2) -lt $limit0) { $messages[0].Text = $messages[0].Text + "`n`n$footer" }
         else { $messages.Add((New-TgMessage '' $footer)) }
         [void]$html.Append("<p>📂 <i>Danh sách đầy đủ $($Items.Count) bài: digests\$(Escape-Html $ArchiveName)</i></p>")
     }
@@ -609,26 +708,62 @@ if ($Hot) {
     }
 
     $line = '━━━━━━━━━━━━━━━━'
-    $blocks = New-Object System.Collections.Generic.List[string]
-    $blocks.Add("⚡ <b>TIN NÓNG</b>  ·  $(Get-Date -Format 'HH:mm dd/MM')`n$line")
-    $i = 0
+    $header = "⚡ <b>TIN NÓNG</b>  ·  $(Get-Date -Format 'HH:mm dd/MM')"
+    $cardMax = if ($null -ne $cfg.hotPhotoCards) { [int]$cfg.hotPhotoCards } else { 3 }
+    $msgList = New-Object System.Collections.Generic.List[object]
+    $rest = New-Object System.Collections.Generic.List[object]
+
+    # Vài tin đầu có ảnh -> gửi dạng thẻ ảnh (ảnh lớn + tiêu đề + tóm tắt)
     foreach ($it in $picked) {
-        $i++
+        $img = ''
+        if ($msgList.Count -lt $cardMax) {
+            $img = Get-OgImage $it.Link
+            if (-not $img) { $img = $it.Image }
+        }
+        if (-not $img) { $rest.Add($it); continue }
         $meta = "$(Get-CategoryIcon $cfg $it.Category) <i>$(Escape-Html (Get-ShortSource $it.Source))</i>"
         $tags = Get-Tags $it 3
         if ($tags) { $meta += "  ·  $tags" }
-        $b = "<b>$i.</b> <a href=`"$(Escape-Html $it.Link)`">$(Escape-Html $it.Title)</a>`n$meta"
-        if ($cfg.showSummary -and $it.Summary) { $b += "`n" + (Escape-Html (Get-FirstSentence $it.Summary ([int]$cfg.summaryMaxChars))) }
-        $blocks.Add($b)
+        $cap = if ($msgList.Count -eq 0) { "$header`n`n" } else { '' }
+        $cap += "<b><a href=`"$(Escape-Html $it.Link)`">$(Escape-Html $it.Title)</a></b>`n$meta"
+        if ($cfg.showSummary -and $it.Summary) { $cap += "`n`n" + (Escape-Html (Get-FirstSentence $it.Summary 300)) }
+        $preview = if ($it.Link -notmatch '://news\.google\.com/') { $it.Link } else { '' }
+        $msgList.Add((New-TgMessage $cfg.hotCategory $cap $img $preview))
     }
-    $msgs = @(Split-Messages $blocks.ToArray() | ForEach-Object { New-TgMessage $cfg.hotCategory $_ })
+
+    # Các tin còn lại -> 1 tin nhắn danh sách, ảnh xem trước của tin đầu danh sách
+    $blocks = New-Object System.Collections.Generic.List[string]
+    if ($rest.Count -gt 0) {
+        $blocks.Add($(if ($msgList.Count -eq 0) { "$header`n$line" } else { "⚡ <b>Tin nóng khác</b>`n$line" }))
+        $i = 0
+        foreach ($it in $rest) {
+            $i++
+            $meta = "$(Get-CategoryIcon $cfg $it.Category) <i>$(Escape-Html (Get-ShortSource $it.Source))</i>"
+            $tags = Get-Tags $it 3
+            if ($tags) { $meta += "  ·  $tags" }
+            $b = "<b>$i.</b> <a href=`"$(Escape-Html $it.Link)`">$(Escape-Html $it.Title)</a>`n$meta"
+            if ($cfg.showSummary -and $it.Summary) { $b += "`n" + (Escape-Html (Get-FirstSentence $it.Summary ([int]$cfg.summaryMaxChars))) }
+            $blocks.Add($b)
+        }
+        $pv = @($rest | Where-Object { $_.Link -notmatch '://news\.google\.com/' } | Select-Object -First 1)
+        $first = $true
+        foreach ($t in (Split-Messages $blocks.ToArray())) {
+            $msgList.Add((New-TgMessage $cfg.hotCategory $t '' $(if ($first -and $pv.Count) { $pv[0].Link } else { '' })))
+            $first = $false
+        }
+    }
+    $msgs = $msgList.ToArray()
 
     if ($DryRun) {
         [Console]::OutputEncoding = [Text.Encoding]::UTF8
-        foreach ($m in $msgs) { Write-Host ([System.Net.WebUtility]::HtmlDecode([regex]::Replace($m.Text, '<[^>]+>', ''))); Write-Host '' }
+        foreach ($m in $msgs) {
+            if ($m.Photo) { Write-Host "[🖼 Ảnh: $($m.Photo)]" -ForegroundColor Cyan }
+            elseif ($m.Preview) { Write-Host "[🔗 Ảnh xem trước: $($m.Preview)]" -ForegroundColor DarkCyan }
+            Write-Host ([System.Net.WebUtility]::HtmlDecode([regex]::Replace($m.Text, '<[^>]+>', ''))); Write-Host ''
+        }
         exit 0
     }
-    if (Send-Digest $secrets 'Tin nóng AI' $msgs ($blocks -join '<br><br>')) {
+    if (Send-Digest $secrets 'Tin nóng AI' $msgs (@($msgs | ForEach-Object { $_.Text -replace "`n", '<br>' }) -join '<br><br>')) {
         Save-State
         # Ghi vào file lưu trữ trong ngày (cũng dùng để chống gửi lại tin trùng ở các lần sau)
         if (-not (Test-Path $DigestDir)) { New-Item -ItemType Directory -Path $DigestDir | Out-Null }
@@ -708,6 +843,8 @@ if ($DryRun) {
         $topic = if ($secrets) { Get-TopicId $secrets $m.Category } else { $null }
         $where = if ($topic) { "topic #$topic" } else { 'General' }
         Write-Host "┌── Tin nhắn $n/$($digest.Telegram.Count)  →  $where" -ForegroundColor DarkGray
+        if ($m.Photo) { Write-Host "[🖼 Ảnh: $($m.Photo)]" -ForegroundColor Cyan }
+        elseif ($m.Preview) { Write-Host "[🔗 Ảnh xem trước: $($m.Preview)]" -ForegroundColor DarkCyan }
         Write-Host ([System.Net.WebUtility]::HtmlDecode([regex]::Replace($m.Text, '<[^>]+>', '')))
         Write-Host ''
     }
