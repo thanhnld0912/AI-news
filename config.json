@@ -58,6 +58,8 @@
   ],
 
   "feeds": [
+    { "name": "Bing News (AI)", "category": "Tin nóng", "hot": true, "filter": true,
+      "url": "https://www.bing.com/news/search?q=OpenAI+OR+Anthropic+OR+DeepMind+OR+Gemini+OR+Claude+OR+ChatGPT+OR+GPT+OR+Grok+OR+DeepSeek+OR+Qwen+OR+Llama&format=rss&setlang=en-US&cc=US&mkt=en-US&qft=interval%3d%227%22" },
     { "name": "Google News (AI, 24h)", "category": "Tin nóng", "hot": true, "googleNews": true, "filter": true,
       "url": "https://news.google.com/rss/search?q=(OpenAI+OR+Anthropic+OR+DeepMind+OR+Gemini+OR+Claude+OR+ChatGPT+OR+GPT+OR+xAI+OR+Grok+OR+%22Meta+AI%22+OR+Llama+OR+DeepSeek+OR+Qwen+OR+Mistral+OR+Nvidia)+(launch+OR+launches+OR+release+OR+unveils+OR+announces+OR+leak+OR+leaked+OR+model)+when:1d&hl=en-US&gl=US&ceid=US:en" },
     { "name": "TestingCatalog (tin rò rỉ)", "category": "Tin nóng", "hot": true, "filter": true, "weight": 1, "url": "https://www.testingcatalog.com/rss/" },

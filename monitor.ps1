@@ -46,8 +46,19 @@ function Read-JsonFile([string]$Path) {
 }
 
 function Get-Url([string]$Url) {
-    $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 30 `
-        -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ai-feed-monitor/1.0'
+    # Thử lại tối đa 3 lần khi máy chủ bận/chặn tạm thời (429, 5xx) — hay gặp với Google News từ máy GitHub
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 30 `
+                -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+            break
+        } catch {
+            $code = 0
+            if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+            if ($attempt -ge 3 -or -not ($code -eq 429 -or $code -ge 500)) { throw }
+            Start-Sleep -Seconds (5 * $attempt)
+        }
+    }
     $text = [Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray())
     if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
     return $text
